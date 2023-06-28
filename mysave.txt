@@ -1,0 +1,517 @@
+package high
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"sync"
+
+	"github.com/syndtr/goleveldb/leveldb"
+)
+
+type Users struct {
+	Users []mySim `json:"users"`
+}
+
+type Barrs struct {
+	Barrs []Block `json:"barrs"`
+}
+
+type BlockChain struct {
+	blocks []*Block
+}
+
+type Block struct {
+	Hash        []byte
+	Blocknumber int    `json:"blocknumber"`
+	Txns        [3]txn `json:"trnx"`
+	BlockStatus string `json:"blockStatus"`
+	PrevHash    []byte
+}
+
+type txn struct {
+	ID     string  `json:"id"`
+	Val    int32   `json:"val"`
+	Ver    float64 `json:"ver"`
+	MyHash []byte  `json: "mhash"`
+	Valid  bool    `json:"valid"`
+}
+
+type mySim struct {
+	Key string  `json:"key"`
+	Val int32   `json:"val"`
+	Ver float64 `json:"ver"`
+}
+
+type simcon struct {
+	Val int32   `json:"val"`
+	Ver float64 `json:"ver"`
+}
+
+// type tank interface {
+// 	pushlocalBlock()
+// 	pushBlock()
+// 	// pushData()
+// }
+
+// type myvalue struct {
+// 	radius float64
+// 	height float64
+// }
+
+// func (m myvalue) Tarea() float64 {
+
+// 	return 2*m.radius*m.height +
+// 		2*3.14*m.radius*m.radius
+// }
+
+// func (m myvalue) Volume() float64 {
+
+// 	return 3.14 * m.radius * m.radius * m.height
+// }
+
+// Main Method
+
+// func (m mySim) pushlocalBlock() {
+
+// 	db, err := leveldb.OpenFile("path/to/db", nil)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+
+// 	defer db.Close()
+
+// 	key := m.Key
+// 	mycon := simcon{m.Val, m.Ver}
+
+// 	bmc, err := json.Marshal(mycon)
+
+// 	err = db.Put([]byte(key), []byte(bmc), nil)
+// 	// err = em.db.Update(func(txn *badger.Txn) error {
+// 	// 	err := txn.Set([]byte(key), b.Bytes())
+// 	// 	return err
+// 	// })
+
+// 	if err != nil {
+// 		fmt.Println((err))
+// 	} else {
+// 		fmt.Println(key)
+// 	}
+
+// 	// err = db.Put([]byte("key"), []byte("value"), nil)
+
+// }
+
+var marr [3]txn
+var sz int
+var curBlock int
+
+var mgch chan txn
+var mblockChan chan Block
+var prevHash []byte
+var wg sync.WaitGroup
+var mu sync.Mutex
+var mschan chan mySim
+
+var test int
+var test1 int
+
+// func getdata(m mySim) simcon {
+// 	// <-mschan
+// 	// m := <-mschan
+// 	mu.Lock()
+// 	defer mu.Unlock()
+// 	key := m.Key
+// 	fmt.Println(key)
+
+// 	db, err := leveldb.OpenFile("path/to/db", nil)
+// 	defer db.Close()
+
+// 	if err != nil {
+// 		fmt.Println("I can not open dbfile")
+// 		log.Fatal(err)
+// 	}
+
+// 	fmt.Println("I can  open dbfile")
+
+// 	data, err := db.Get([]byte(key), nil)
+
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+
+// 	var mdata simcon
+
+// 	err = json.Unmarshal(data, &mdata)
+// 	// mschan <- m1
+
+// 	return mdata
+// }
+
+func pushBlock(m mySim) {
+
+	mu.Lock()
+	defer mu.Unlock()
+	key := m.Key
+	// fmt.Println(key)
+
+	db, err := leveldb.OpenFile("path/to/db", nil)
+	defer db.Close()
+
+	if err != nil {
+		// fmt.Println("I can not open dbfile")
+		log.Fatal(err)
+	}
+
+	// fmt.Println("I can  open dbfile")
+
+	data, err := db.Get([]byte(key), nil)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var mdata simcon
+
+	err = json.Unmarshal(data, &mdata)
+
+	// fmt.Println("%v", mdata)
+
+	// fmt.Println("h10")
+
+	// fmt.Print(m.Val)
+	// fmt.Print(" ")
+	// fmt.Print(m.Ver)
+	// fmt.Print(" ")
+	// fmt.Print(mdata.Val)
+	// fmt.Print(" ")
+	// fmt.Println(mdata.Ver)
+
+	flag := false
+
+	if mdata.Ver == m.Ver {
+		mdata.Ver = m.Ver + 1.0
+		mdata.Val = m.Val
+		flag = true
+	}
+
+	info := bytes.Join([][]byte{[]byte(key)}, []byte{})
+	hash := sha256.Sum256(info)
+	// b.Hash = hash[:]
+
+	newtxn := txn{key, mdata.Val, mdata.Ver, hash[:], flag}
+	// fmt.Println(newtxn.myHash)
+	marr[sz] = newtxn
+
+	bmc, err := json.Marshal(mdata)
+
+	err = db.Put([]byte(key), []byte(bmc), nil)
+
+	// mgch <- newtxn
+
+	// fmt.Println("h112")
+
+	select {
+	case mgch <- newtxn:
+	default:
+		// mu.Lock()
+
+		// fmt.Println("hi mycont is full")
+		// CreateBlock(prevHash)
+		// mu.Unlock()
+
+	}
+
+	if len(mgch) == cap(mgch) {
+		// fmt.Println("buff is full")
+		CreateBlock()
+	}
+
+}
+
+func appBlock() {
+	// fmt.Println("hi")
+	// mu.Lock()
+	// defer mu.Unlock()
+	block := <-mblockChan
+	// fmt.Print(block)
+	data, _ := json.Marshal(block)
+
+	file, err := os.OpenFile("ledger.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	if err != nil {
+		log.Fatalf("failed creating file: %s", err)
+	}
+
+	datawriter := bufio.NewWriter(file)
+
+	_, _ = datawriter.WriteString(string(data) + "\n")
+
+	datawriter.Flush()
+	file.Close()
+
+	// fmt.Println(string(file))
+	// fmt.Println("err is here at part111")
+
+	// if block.Blocknumber != 1 {
+	// 	_, err = f.WriteString(",\n")
+	// }
+
+	// fmt.Println("err is here at part112")
+
+	// rar, _ := json.Marshal(marr)
+
+	// if err != nil {
+	// 	// fmt.Println("err is here at part 1")
+	// 	log.Println(err)
+	// }
+	// defer f.Close()
+	// if _, err := f.Write(file); err != nil {
+	// 	// fmt.Println("err is here at part 2")
+	// 	log.Println(err)
+	// }
+
+	// if _, err := f.Write([]byte("/n")); err != nil {
+	// 	// fmt.Println("err is here at part 2")
+	// 	log.Println(err)
+	// }
+
+	// fmt.Println(string(file))
+}
+
+func CreateBlock() {
+
+	// mu.Lock()
+
+	// fmt.Println(prevHash)
+	// fmt.Println(curBlock)
+
+	msice := []txn{}
+
+	// for result := range mgch {
+	// 	fmt.Println((result))
+	// 	msice = append(msice, result)
+	// 	fmt.Println("err is here at part")
+	// }
+
+	for len(mgch) > 0 {
+		result := <-mgch
+		// fmt.Println(result)
+		msice = append(msice, result)
+		// fmt.Println("err is here at part")
+	}
+
+	// mbdata := blockdata{int32(curBlock), []byte{}, marr, "commit"}
+	curBlock++
+	// fmt.Println("err is here at part ", curBlock)
+
+	block := Block{[]byte{}, int(curBlock), [3]txn(msice), "commit", prevHash}
+	// fmt.Println(block)
+	em, err := json.Marshal(block)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	info := bytes.Join([][]byte{em, block.PrevHash}, []byte{})
+	hash := sha256.Sum256(info)
+	block.Hash = hash[:]
+	prevHash = hash[:]
+	// fmt.Println(block)
+	// block.DeriveHash()
+
+	select {
+	case mblockChan <- block:
+	default:
+		// fmt.Println("hi block is full")
+	}
+
+	if len(mblockChan) == cap(mblockChan) {
+		// fmt.Println("buff is full")
+		appBlock()
+	}
+
+	// mu.Unlock()
+
+}
+
+// func (chain *BlockChain) AddBlock() {
+// 	prevBlock := chain.blocks[len(chain.blocks)-1]
+// 	new := CreateBlock(prevBlock.Hash)
+// 	chain.blocks = append(chain.blocks, new)
+// }
+
+// func Genesis() *Block {
+// 	return CreateBlock([]byte{})
+// }
+
+// func InitBlockChain() *BlockChain {
+// 	return &BlockChain{[]*Block{Genesis()}}
+// }
+
+func foo(s string) {
+
+	defer wg.Done() // 3
+
+	for i := 1; i <= 3; i++ {
+		// time.Sleep(100 * time.Millisecond)
+		fmt.Println(s, ": ", i)
+	}
+}
+
+func routine(i int32) {
+	defer wg.Done() // 3
+	fmt.Printf("routine %v finished\n", i)
+}
+
+func shblbynum(k int) {
+
+	readFile, err := os.Open("ledger.txt")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	fileScanner := bufio.NewScanner(readFile)
+
+	fileScanner.Split(bufio.ScanLines)
+
+	count := 1
+	for fileScanner.Scan() {
+
+		if count == k {
+			fmt.Println(fileScanner.Text())
+			readFile.Close()
+			return
+		}
+
+		count++
+	}
+
+	readFile.Close()
+
+}
+
+func high() {
+
+	test1 = 3
+
+	// for i := 0; i < 10; i++ {
+	// 	wg.Add(1)     // 2
+	// 	go routine(i) // *
+	// }
+	// wg.Wait() // 4
+	// fmt.Println("main finished")
+
+	// for i := 0; i < 10; i++ {
+	// 	wg.Add(1)
+	// 	go foo("abd")
+	// }
+
+	// wg.Wait() // 4
+	// fmt.Println("main finished")
+
+	mgch = make(chan txn, 3)
+	mblockChan = make(chan Block, 1)
+	mschan = make(chan mySim, 1)
+
+	// db, err := leveldb.OpenFile("path/to/db", nil)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// defer db.Close()
+
+	// var t tank
+
+	// for i := 1; i <= 1000; i++ {
+
+	// 	var str string
+	// 	var str2 string
+	// 	str2 = strconv.Itoa(i)
+	// 	str = "Sim" + str2
+
+	// 	t = mySim{str, 1, 1.0}
+	// 	t.pushlocalBlock()
+	// }
+
+	jsonFile, err := os.Open("data.json")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// fmt.Println("Successfully Opened users.json")
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	// // // we initialize our Users array
+	var users Users
+
+	// // we unmarshal our byteArray which contains our
+	// // jsonFile's content into 'users' which we defined above
+	json.Unmarshal(byteValue, &users)
+
+	// // // we iterate through every user within our users array and
+	// // // print out the user Type, their name, and their facebook url
+	// // // as just an example
+
+	sz = 0
+	curBlock = 0
+	// prevHash = []
+
+	// f, err := os.OpenFile("ldata1.json", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// if _, err := f.WriteString("["); err != nil {
+	// 	log.Println(err)
+	// }
+
+	var wg sync.WaitGroup
+
+	// wg.Add(1)
+	// 2
+
+	for i := 0; i < len(users.Users); i++ {
+
+		// mu.Lock()
+		// fmt.Println("hi")
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			// m1 := users.Users[i]
+			// pushBlock(m1)
+			// fmt.Println(i)
+		}(i)
+
+		// defer mu.Unlock()
+		// time.Sleep(time.Millisecond * time.Duration(1000))
+	}
+	wg.Wait() // 4
+	// fmt.Println("main finished")
+
+	// if _, err := f.WriteString("]"); err != nil {
+	// 	log.Println(err)
+	// }
+
+	shblbynum(3)
+
+	// router := gin.Default()
+
+	// // POST /create/{key}
+	// router.POST("/updatedata", createHandler)
+
+	// // GET /get/{key}
+	// router.GET("/get/:key", getHandler)
+
+	// //router.GET("/delete/:key", deleteHandler)
+	// // Start the server on port 8080
+	// log.Println("Server listening on port 18080...")
+	// router.Run(":18080")
+
+}
